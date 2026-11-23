@@ -5,7 +5,7 @@
 #include "data/datareader.h"
 #include "algorithm/forecasting.h"
 #include "evaluation/evaluation.h"
-
+#include <cmath>
 void printDPTableDemo(DPForecaster& forecaster) {
     std::vector<double> sampleQuery = {100.0, 102.5, 101.0, 104.0, 106.0};
     std::vector<double> sampleTarget = {99.5, 101.8, 101.2, 103.5, 105.8};
