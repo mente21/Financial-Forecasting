@@ -104,12 +104,12 @@
           <!-- Top Row: Ticker toggles & Account/Dataset Info -->
           <div class="flex items-center justify-between pb-6">
             <div class="flex items-center bg-[#F3F4F6] rounded-full p-1 space-x-1">
-              <button class="px-3.5 py-1 text-xs font-semibold rounded-full bg-white shadow-xs text-gray-900 flex items-center gap-1.5">
+              <button id="curr-usd-btn" class="currency-toggle-btn px-3.5 py-1 text-xs font-semibold rounded-full bg-white shadow-xs text-gray-900 flex items-center gap-1.5 transition">
                 <span class="w-3.5 h-3.5 rounded-full bg-blue-600 flex items-center justify-center text-[8px] text-white font-bold">🇺🇸</span>
                 USD
               </button>
-              <button class="px-3 py-1 text-xs font-medium rounded-full text-gray-500 hover:text-gray-800 transition">IDR</button>
-              <button class="px-3 py-1 text-xs font-medium rounded-full text-gray-500 hover:text-gray-800 transition">MYR</button>
+              <button id="curr-idr-btn" class="currency-toggle-btn px-3 py-1 text-xs font-medium rounded-full text-gray-500 hover:text-gray-800 transition">IDR</button>
+              <button id="curr-myr-btn" class="currency-toggle-btn px-3 py-1 text-xs font-medium rounded-full text-gray-500 hover:text-gray-800 transition">MYR</button>
             </div>
 
             <div class="flex items-center space-x-2 text-xs text-gray-500">
@@ -125,7 +125,10 @@
 
           <!-- Main Metric: Latest Closing Price -->
           <div class="py-2">
-            <div class="text-xs font-medium text-gray-400 tracking-wide mb-1">Active Balance</div>
+            <div class="text-xs font-medium text-gray-400 tracking-wide mb-1 flex items-center justify-between">
+              <span>Active Balance (Latest Market Close)</span>
+              <span id="hero-market-date-badge" class="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">2024-03-27</span>
+            </div>
             <div class="flex items-center space-x-3">
               <span id="hero-latest-price" class="text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900">$180.60</span>
               <button id="toggle-price-privacy-btn" title="Toggle visibility" class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition">
@@ -135,9 +138,17 @@
                 </svg>
               </button>
             </div>
-            <div id="dataset-meta-badge" class="mt-2 text-xs text-gray-500 flex items-center gap-2">
+            <!-- Quick Market Switcher directly inside the card! -->
+            <div id="dataset-meta-badge" class="mt-2.5 text-xs text-gray-500 flex flex-wrap items-center gap-2">
               <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>Loaded dataset: <strong id="current-filename-label" class="text-gray-700">sample_stock_data.csv</strong> (60 records)</span>
+              <span class="font-medium text-gray-600">Stock Market:</span>
+              <select id="hero-market-select" class="bg-gray-100 hover:bg-gray-200 border-0 rounded-full px-3 py-1 text-xs font-bold text-gray-800 cursor-pointer transition focus:ring-2 focus:ring-[#B4F73C]">
+                <option value="data/sample_stock_data.csv">Default Sample ($180.60)</option>
+                <option value="data/preset_aapl_tech.csv">Apple Inc. Tech ($192.50)</option>
+                <option value="data/preset_nvda_momentum.csv">Nvidia High Momentum ($518.44)</option>
+                <option value="data/preset_xom_defensive.csv">Exxon Defensive ($112.30)</option>
+              </select>
+              <span id="hero-records-count-badge" class="text-[10px] text-gray-400 font-mono-code">(60 records)</span>
             </div>
           </div>
         </div>
@@ -203,7 +214,10 @@
 
           <!-- Highlight Value: Projected Price / Expected Return -->
           <div class="py-2 relative z-10">
-            <div class="text-xs font-semibold tracking-wide text-[#0D2B1D]/75 mb-1">Your Rewards</div>
+            <div class="text-xs font-semibold tracking-wide text-[#0D2B1D]/75 mb-1 flex items-center justify-between">
+              <span>Your Rewards (C++ Projected Target)</span>
+              <span id="target-horizon-badge" class="text-[10px] font-bold text-[#0D2B1D] bg-white/70 px-2 py-0.5 rounded-full">5-Day Projection</span>
+            </div>
             <div class="flex items-baseline space-x-3">
               <span id="hero-reward-price" class="text-4xl md:text-5xl font-extrabold tracking-tight text-[#0D2B1D]">$187.82</span>
               <span id="hero-reward-pill" class="text-xs font-bold px-2.5 py-1 rounded-full bg-white/70 text-[#0D2B1D] shadow-xs">

@@ -7,6 +7,7 @@
 const state = {
   currentCsvPath: 'data/sample_stock_data.csv',
   currentFilename: 'sample_stock_data.csv',
+  currency: 'USD',
   parameters: {
     windowSize: 10,
     forecastHorizon: 5,
@@ -21,6 +22,12 @@ const state = {
   showVolume: true,
   isPriceHidden: false,
   pendingUploadFile: null
+};
+
+const CURRENCY_RATES = {
+  USD: { rate: 1.0, symbol: '$', digits: 2 },
+  IDR: { rate: 15800.0, symbol: 'Rp ', digits: 0 },
+  MYR: { rate: 4.50, symbol: 'RM ', digits: 2 }
 };
 
 // DOM Elements
@@ -45,6 +52,12 @@ const elements = {
   toastContainer: document.getElementById('toast-container'),
 
   // Hero Card Left
+  currUsdBtn: document.getElementById('curr-usd-btn'),
+  currIdrBtn: document.getElementById('curr-idr-btn'),
+  currMyrBtn: document.getElementById('curr-myr-btn'),
+  heroMarketSelect: document.getElementById('hero-market-select'),
+  heroMarketDateBadge: document.getElementById('hero-market-date-badge'),
+  heroRecordsCountBadge: document.getElementById('hero-records-count-badge'),
   heroLatestPrice: document.getElementById('hero-latest-price'),
   togglePricePrivacyBtn: document.getElementById('toggle-price-privacy-btn'),
   currentFilenameLabel: document.getElementById('current-filename-label'),
@@ -56,6 +69,7 @@ const elements = {
   scrollToProjectionsBtn: document.getElementById('scroll-to-projections-btn'),
 
   // Hero Card Right (Priority / Rewards)
+  targetHorizonBadge: document.getElementById('target-horizon-badge'),
   heroRewardPrice: document.getElementById('hero-reward-price'),
   heroRewardPill: document.getElementById('hero-reward-pill'),
   delibixPointsVal: document.getElementById('delibix-points-val'),
@@ -162,14 +176,15 @@ function showToast(message, type = 'info') {
 }
 
 /**
- * Format USD Currency with proper negative sign placement (-$0.70 not $-0.70)
+ * Format Currency with live USD / IDR / MYR conversion support
  */
 function formatCurrency(val) {
   if (val === undefined || val === null || isNaN(val)) return '$0.00';
-  const num = Number(val);
+  const c = CURRENCY_RATES[state.currency] || CURRENCY_RATES.USD;
+  const num = Number(val) * c.rate;
   const sign = num < 0 ? '-' : '';
-  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${sign}$${absFormatted}`;
+  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: c.digits, maximumFractionDigits: c.digits });
+  return `${sign}${c.symbol}${absFormatted}`;
 }
 
 /**
@@ -177,10 +192,11 @@ function formatCurrency(val) {
  */
 function formatDeltaCurrency(val) {
   if (val === undefined || val === null || isNaN(val)) return '$0.00';
-  const num = Number(val);
+  const c = CURRENCY_RATES[state.currency] || CURRENCY_RATES.USD;
+  const num = Number(val) * c.rate;
   const sign = num > 0 ? '+' : (num < 0 ? '-' : '');
-  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${sign}$${absFormatted}`;
+  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: c.digits, maximumFractionDigits: c.digits });
+  return `${sign}${c.symbol}${absFormatted}`;
 }
 
 /**
@@ -265,20 +281,28 @@ function renderDashboard(data) {
   const records = data.historicalRecords || [];
 
   // 1. Hero Left Card
-  elements.currentFilenameLabel.textContent = state.currentFilename;
+  if (elements.currentFilenameLabel) elements.currentFilenameLabel.textContent = state.currentFilename;
+  if (elements.heroMarketDateBadge) elements.heroMarketDateBadge.textContent = data.dateRange.end || 'Latest Close';
+  if (elements.heroRecordsCountBadge) elements.heroRecordsCountBadge.textContent = `(${records.length} records)`;
+  if (elements.heroMarketSelect) elements.heroMarketSelect.value = state.currentCsvPath;
+  if (elements.presetDatasetSelect) elements.presetDatasetSelect.value = state.currentCsvPath;
+
   if (state.isPriceHidden) {
-    elements.heroLatestPrice.textContent = '$••••••';
+    elements.heroLatestPrice.textContent = '••••••';
   } else {
     elements.heroLatestPrice.textContent = formatCurrency(latestPrice);
   }
   elements.accountNumberDisplay.textContent = state.currentFilename.includes('sample') ? '90340222748' : `DATA-${records.length}REC`;
 
   // 2. Hero Right Card (Priority / Rewards Highlight)
+  if (elements.targetHorizonBadge) {
+    elements.targetHorizonBadge.textContent = `${projections.length}-Day Forecast`;
+  }
   if (projections.length > 0) {
     const finalProj = projections[projections.length - 1];
     elements.heroRewardPrice.textContent = formatCurrency(finalProj.price);
     const sign = finalProj.changePct >= 0 ? '+' : '';
-    elements.heroRewardPill.textContent = `${sign}${finalProj.changePct.toFixed(2)}% (${projections.length}D Horizon)`;
+    elements.heroRewardPill.textContent = `${sign}${finalProj.changePct.toFixed(2)}% (${projections.length}D Target)`;
   } else {
     elements.heroRewardPrice.textContent = formatCurrency(latestPrice);
     elements.heroRewardPill.textContent = '+0.00%';
@@ -1151,16 +1175,87 @@ function setupEventListeners() {
     elements.projectionsProgressList.scrollIntoView({ behavior: 'smooth' });
   });
 
-  // 14. System Status Button
-  document.getElementById('system-status-btn').addEventListener('click', async () => {
-    try {
-      const res = await fetch('/api/health');
-      const health = await res.json();
-      showToast(`C++ Engine: ${health.cPlusPlusExecutable ? 'Operational' : 'Unavailable'} (StockPricePredictor.exe)`, 'info');
-    } catch {
-      showToast('Backend server connection failed', 'error');
-    }
+  // 15. Currency Switcher (USD / IDR / MYR)
+  const currencyBtns = [
+    { btn: elements.currUsdBtn, curr: 'USD' },
+    { btn: elements.currIdrBtn, curr: 'IDR' },
+    { btn: elements.currMyrBtn, curr: 'MYR' }
+  ];
+
+  currencyBtns.forEach(({ btn, curr }) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      state.currency = curr;
+
+      currencyBtns.forEach(c => {
+        if (!c.btn) return;
+        c.btn.className = 'currency-toggle-btn px-3 py-1 text-xs font-medium rounded-full text-gray-500 hover:text-gray-800 transition';
+      });
+      btn.className = 'currency-toggle-btn px-3.5 py-1 text-xs font-semibold rounded-full bg-white shadow-xs text-gray-900 flex items-center gap-1.5 transition';
+
+      showToast(`Switched currency to ${curr} (${CURRENCY_RATES[curr].symbol})`, 'info');
+      if (state.forecastData) {
+        renderDashboard(state.forecastData);
+      }
+    });
   });
+
+  // 16. Hero Market Select (Quick dataset switcher in left hero card!)
+  if (elements.heroMarketSelect) {
+    elements.heroMarketSelect.addEventListener('change', e => {
+      state.currentCsvPath = e.target.value;
+      state.currentFilename = e.target.options[e.target.selectedIndex].text.split('(')[0].trim() + '.csv';
+      if (elements.presetDatasetSelect) {
+        elements.presetDatasetSelect.value = e.target.value;
+      }
+      showToast(`Loading stock data: ${e.target.options[e.target.selectedIndex].text}...`, 'info');
+      runForecast();
+    });
+  }
+
+  // 17. Step-Forward Simulation Player (Walks through C++ forecast day-by-day!)
+  let simulationTimer = null;
+  function triggerStepSimulation() {
+    if (!state.forecastData || !state.forecastData.futureProjections) return;
+    const projs = state.forecastData.futureProjections.projections;
+    const basePrice = state.forecastData.futureProjections.latestPrice;
+    if (!projs || projs.length === 0) return;
+
+    if (simulationTimer) {
+      clearInterval(simulationTimer);
+      simulationTimer = null;
+      elements.heroLatestPrice.textContent = formatCurrency(basePrice);
+      elements.heroLatestPrice.classList.remove('text-emerald-600', 'scale-105');
+      return;
+    }
+
+    let step = 0;
+    showToast(`Stepping through ${projs.length}-day C++ forecast trajectory...`, 'info');
+
+    simulationTimer = setInterval(() => {
+      if (step > projs.length) {
+        clearInterval(simulationTimer);
+        simulationTimer = null;
+        elements.heroLatestPrice.textContent = formatCurrency(basePrice);
+        elements.heroLatestPrice.classList.remove('text-emerald-600', 'scale-105');
+        return;
+      }
+
+      if (step === 0) {
+        elements.heroLatestPrice.textContent = formatCurrency(basePrice);
+        elements.heroLatestPrice.classList.remove('text-emerald-600');
+      } else {
+        const p = projs[step - 1];
+        elements.heroLatestPrice.textContent = `${formatCurrency(p.price)}`;
+        elements.heroLatestPrice.classList.add('text-emerald-600', 'scale-105', 'transition-all');
+        showToast(`Forward Day ${p.step}: ${formatCurrency(p.price)} (${p.expectedChange} from $${basePrice.toFixed(2)})`, 'info');
+      }
+      step++;
+    }, 900);
+  }
+
+  // Bind simulation trigger to the green circular arrow button
+  elements.scrollToProjectionsBtn.addEventListener('click', triggerStepSimulation);
 }
 
 // Initialization on DOM Loaded
