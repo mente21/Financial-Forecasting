@@ -1,0 +1,21 @@
+{
+  "name": "financial-forecasting-system",
+  "version": "1.0.0",
+  "description": "Production-quality Financial Forecasting System with Dynamic Programming (DTW) C++ Core and Modern Web Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_server_bridge.js"
+  },
+  "keywords": [
+    "financial-forecasting",
+    "dynamic-programming",
+    "dtw",
+    "time-series",
+    "stock-prediction",
+    "chartjs",
+    "tailwind"
+  ],
+  "author": "",
+  "license": "MIT"
+}
