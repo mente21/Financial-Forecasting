@@ -41,19 +41,34 @@
 
     <!-- TOP NAVIGATION BAR -->
     <header class="flex items-center justify-between py-2">
-      <!-- Left: User Profile & Title -->
-      <div class="flex items-center space-x-3.5">
-        <div class="relative">
-          <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&h=120&q=80" 
-               alt="User Avatar" 
-               class="w-11 h-11 rounded-full object-cover border-2 border-white shadow-sm">
-          <span class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+      <!-- Left: Logo & Brand Title -->
+      <div class="flex items-center space-x-3.5 cursor-pointer group">
+        <!-- Logo Emblem -->
+        <div class="w-11 h-11 rounded-2xl bg-[#0D2B1D] flex items-center justify-center shadow-[0_4px_18px_rgba(13,43,29,0.25)] border border-[#B4F73C]/30 relative overflow-hidden flex-shrink-0 group-hover:scale-105 transition-transform duration-200">
+          <div class="absolute -top-2 -right-2 w-6 h-6 bg-[#B4F73C]/25 rounded-full blur-xs"></div>
+          <svg class="w-6 h-6 text-[#B4F73C]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 17L8.5 11.5L13.5 15.5L21 7"></path>
+            <path d="M16 7H21V12"></path>
+            <circle cx="8.5" cy="11.5" r="1.5" fill="#B4F73C"></circle>
+            <circle cx="13.5" cy="15.5" r="1.5" fill="#B4F73C"></circle>
+            <circle cx="21" cy="7" r="1.8" fill="#FFFFFF"></circle>
+          </svg>
         </div>
+
+        <!-- Typography -->
         <div>
-          <h1 class="text-xl md:text-2xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
-            Hello, Siburian
-            <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 hidden sm:inline-block">C++ DP Active</span>
-          </h1>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg md:text-xl font-extrabold tracking-tight text-gray-900 leading-tight">
+              Financial <span class="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-[#0D2B1D] to-emerald-700">Forecasting System</span>
+            </h1>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#B4F73C] text-[#0D2B1D] tracking-wide uppercase hidden sm:inline-block shadow-xs">
+              C++ DP
+            </span>
+          </div>
+          <div class="text-[11px] font-medium text-gray-400 flex items-center gap-1.5 leading-none mt-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Dynamic Time Warping • Time-Series Engine</span>
+          </div>
         </div>
       </div>
 
