@@ -17,6 +17,8 @@ const state = {
   chartInstance: null,
   chartRange: 'all',
   showValidationCurve: true,
+  showCorridor: true,
+  showVolume: true,
   isPriceHidden: false,
   pendingUploadFile: null
 };
@@ -33,6 +35,7 @@ const elements = {
   closeParamsModalBtn: document.getElementById('close-params-modal-btn'),
   paramsModal: document.getElementById('params-modal'),
   openUploadModalBtn: document.getElementById('open-upload-modal-btn'),
+  chartUploadBtn: document.getElementById('chart-upload-btn'),
   closeUploadModalBtn: document.getElementById('close-upload-modal-btn'),
   cancelUploadBtn: document.getElementById('cancel-upload-btn'),
   uploadModal: document.getElementById('upload-modal'),
@@ -80,12 +83,26 @@ const elements = {
   txBannerTitle: document.getElementById('tx-banner-title'),
   txBannerSub: document.getElementById('tx-banner-sub'),
 
-  // Chart Section
+  // Chart Section & HUD Bar
   chartCanvas: document.getElementById('financialChart'),
   chartSection: document.getElementById('chart-section'),
   chartRangeBtns: document.querySelectorAll('.chart-range-btn'),
   toggleBacktestCurveBtn: document.getElementById('toggle-backtest-curve-btn'),
+  toggleCorridorBtn: document.getElementById('toggle-corridor-btn'),
+  toggleVolumeBtn: document.getElementById('toggle-volume-btn'),
+  presetDatasetSelect: document.getElementById('preset-dataset-select'),
+  customCsvOption: document.getElementById('custom-csv-option'),
   chartDataPointsCount: document.getElementById('chart-data-points-count'),
+
+  // Live HUD Elements
+  hudDateLabel: document.getElementById('hud-date-label'),
+  hudClosePrice: document.getElementById('hud-close-price'),
+  hudChangeBadge: document.getElementById('hud-change-badge'),
+  hudOpenVal: document.getElementById('hud-open-val'),
+  hudHighVal: document.getElementById('hud-high-val'),
+  hudLowVal: document.getElementById('hud-low-val'),
+  hudVolVal: document.getElementById('hud-vol-val'),
+  hudForecastBadge: document.getElementById('hud-forecast-badge'),
 
   // Parameters Inputs
   windowSizeInput: document.getElementById('window-size-input'),
@@ -105,6 +122,7 @@ const elements = {
   uploadStatusBox: document.getElementById('upload-status-box'),
   confirmUploadBtn: document.getElementById('confirm-upload-btn'),
   loadSampleBtn: document.getElementById('load-sample-btn'),
+  presetQuickBtns: document.querySelectorAll('.preset-quick-btn'),
 
   // DTW Demonstration Elements
   dtwQuerySeq: document.getElementById('dtw-query-seq'),
@@ -404,7 +422,56 @@ function renderDtwMatrix(matrix) {
 }
 
 /**
+ * Update Interactive Live HUD Bar
+ */
+function updateHUD(record, forecastInfo = null) {
+  if (!record && !forecastInfo) return;
+
+  if (forecastInfo) {
+    elements.hudDateLabel.textContent = `Forecast: ${forecastInfo.dateLabel || forecastInfo.step}`;
+    elements.hudClosePrice.textContent = formatCurrency(forecastInfo.price);
+    elements.hudChangeBadge.textContent = forecastInfo.expectedChange || '+0.00%';
+    elements.hudChangeBadge.className = forecastInfo.changePct >= 0 
+      ? 'px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-100 text-emerald-800'
+      : 'px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-rose-100 text-rose-800';
+
+    elements.hudOpenVal.textContent = 'Open: --';
+    elements.hudHighVal.textContent = 'High: --';
+    elements.hudLowVal.textContent = 'Low: --';
+    elements.hudVolVal.textContent = 'Vol: --';
+    elements.hudForecastBadge.classList.remove('hidden');
+    elements.hudForecastBadge.textContent = `C++ ${forecastInfo.step}: ${formatCurrency(forecastInfo.price)} (${forecastInfo.expectedChange})`;
+    return;
+  }
+
+  elements.hudDateLabel.textContent = `Date: ${record.date}`;
+  elements.hudClosePrice.textContent = formatCurrency(record.close);
+
+  // Day-over-day price change
+  if (record.prevClose !== undefined) {
+    const diff = record.close - record.prevClose;
+    const diffPct = record.prevClose > 0 ? (diff / record.prevClose) * 100 : 0;
+    const sign = diff >= 0 ? '+' : '';
+    elements.hudChangeBadge.textContent = `${sign}${formatCurrency(diff)} (${sign}${diffPct.toFixed(2)}%)`;
+    elements.hudChangeBadge.className = diff >= 0
+      ? 'px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-100 text-emerald-800'
+      : 'px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-rose-100 text-rose-800';
+  } else {
+    elements.hudChangeBadge.textContent = '+0.00%';
+    elements.hudChangeBadge.className = 'px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-gray-100 text-gray-700';
+  }
+
+  elements.hudOpenVal.textContent = `Open: ${formatCurrency(record.open)}`;
+  elements.hudHighVal.textContent = `High: ${formatCurrency(record.high)}`;
+  elements.hudLowVal.textContent = `Low: ${formatCurrency(record.low)}`;
+  const volM = (record.volume / 1000000).toFixed(1);
+  elements.hudVolVal.textContent = `Vol: ${volM}M`;
+  elements.hudForecastBadge.classList.add('hidden');
+}
+
+/**
  * Render Financial Time-Series Chart using Chart.js
+ * Enhanced with OHLC Volatility Corridor, Trading Volume, and Forecast Cutoff
  */
 function renderChart(historicalRecords, projections, backtest) {
   if (!historicalRecords || historicalRecords.length === 0) return;
@@ -417,49 +484,85 @@ function renderChart(historicalRecords, projections, backtest) {
 
   elements.chartDataPointsCount.textContent = `${records.length} historical + ${projections.length} projected`;
 
-  // Build unified timeline
-  const labels = [];
-  const historicalSeries = [];
-  const projectionSeries = [];
-  const backtestSeries = [];
-
-  // Historical points
-  records.forEach(r => {
-    labels.push(r.date);
-    historicalSeries.push(r.close);
-    projectionSeries.push(null);
-    backtestSeries.push(null);
+  // Attach previous close for clean HUD change calculation
+  const mappedRecords = records.map((r, i) => {
+    const prev = i > 0 ? records[i - 1].close : r.open;
+    return Object.assign({}, r, { prevClose: prev });
   });
 
-  // Future projections point starting from the last historical point
-  if (projections && projections.length > 0 && records.length > 0) {
-    const lastHistIdx = records.length - 1;
-    projectionSeries[lastHistIdx] = records[lastHistIdx].close; // Connect lines seamlessly
+  // Default HUD to latest known record
+  updateHUD(mappedRecords[mappedRecords.length - 1]);
 
-    // Calculate future dates by trading days (skipping weekends)
-    const lastDateStr = records[lastHistIdx].date;
+  // Build unified timelines and series
+  const labels = [];
+  const highSeries = [];
+  const lowSeries = [];
+  const closeSeries = [];
+  const backtestSeries = [];
+  const projectionSeries = [];
+  const projectionPointRadius = [];
+  const volumeSeries = [];
+  const volumeColors = [];
+
+  const maxVol = Math.max(...records.map(r => r.volume || 0), 1000000);
+
+  // 1. Populate Historical Records
+  mappedRecords.forEach((r) => {
+    labels.push(r.date);
+    highSeries.push(r.high);
+    lowSeries.push(r.low);
+    closeSeries.push(r.close);
+    backtestSeries.push(null);
+    projectionSeries.push(null);
+    projectionPointRadius.push(0);
+
+    volumeSeries.push(r.volume || 0);
+    // Green for bull day, red for bear day
+    if (r.close >= r.open) {
+      volumeColors.push('rgba(16, 185, 129, 0.28)');
+    } else {
+      volumeColors.push('rgba(244, 63, 94, 0.28)');
+    }
+  });
+
+  // 2. Future Projections (connect seamlessly from latest close)
+  if (projections && projections.length > 0 && mappedRecords.length > 0) {
+    const lastHistIdx = mappedRecords.length - 1;
+    const lastClose = mappedRecords[lastHistIdx].close;
+    const lastDateStr = mappedRecords[lastHistIdx].date;
+
+    // Anchor future line at last historical point without drawing a circle dot
+    projectionSeries[lastHistIdx] = lastClose;
+    projectionPointRadius[lastHistIdx] = 0; // Don't double-draw circle at anchor!
+
     projections.forEach((p, idx) => {
       const dateLabel = getNextTradingDate(lastDateStr, idx + 1);
       labels.push(`${p.step} (${dateLabel})`);
-      historicalSeries.push(null);
-      projectionSeries.push(p.price);
+      
+      highSeries.push(null);
+      lowSeries.push(null);
+      closeSeries.push(null);
       backtestSeries.push(null);
+      volumeSeries.push(null);
+      volumeColors.push('transparent');
+
+      projectionSeries.push(p.price);
+      projectionPointRadius.push(5); // Prominent circular marker for projected days
     });
   }
 
-  // Backtest validation predictions
+  // 3. Backtest Validation Curve (connect from baseline price)
   if (state.showValidationCurve && backtest && backtest.length > 0) {
     const testSize = backtest.length;
-    const trainEndIdx = records.length - testSize;
+    const trainEndIdx = mappedRecords.length - testSize;
 
     if (trainEndIdx >= 0) {
-      // Connect line smoothly from the baseline price before test period
       if (trainEndIdx > 0) {
-        backtestSeries[trainEndIdx - 1] = records[trainEndIdx - 1].close;
+        backtestSeries[trainEndIdx - 1] = mappedRecords[trainEndIdx - 1].close;
       }
       backtest.forEach((b, idx) => {
         const targetIdx = trainEndIdx + idx;
-        if (targetIdx < historicalSeries.length) {
+        if (targetIdx < mappedRecords.length) {
           backtestSeries[targetIdx] = b.predicted;
         }
       });
@@ -473,14 +576,14 @@ function renderChart(historicalRecords, projections, backtest) {
 
   const ctx = elements.chartCanvas.getContext('2d');
 
-  // Gradient fill for historical data
-  const gradientFill = ctx.createLinearGradient(0, 0, 0, 350);
-  gradientFill.addColorStop(0, 'rgba(17, 24, 39, 0.08)');
-  gradientFill.addColorStop(1, 'rgba(17, 24, 39, 0.00)');
+  // Gradient fill for historical price
+  const histGradient = ctx.createLinearGradient(0, 0, 0, 350);
+  histGradient.addColorStop(0, 'rgba(17, 24, 39, 0.07)');
+  histGradient.addColorStop(1, 'rgba(17, 24, 39, 0.00)');
 
-  // Gradient fill for projected data
+  // Gradient fill for future projections
   const projGradient = ctx.createLinearGradient(0, 0, 0, 350);
-  projGradient.addColorStop(0, 'rgba(180, 247, 60, 0.25)');
+  projGradient.addColorStop(0, 'rgba(180, 247, 60, 0.22)');
   projGradient.addColorStop(1, 'rgba(180, 247, 60, 0.00)');
 
   state.chartInstance = new Chart(ctx, {
@@ -488,103 +591,179 @@ function renderChart(historicalRecords, projections, backtest) {
     data: {
       labels: labels,
       datasets: [
+        // Dataset 0: High corridor boundary (hidden from legend)
+        {
+          label: 'Daily High ($)',
+          data: highSeries,
+          borderColor: 'transparent',
+          backgroundColor: 'transparent',
+          borderWidth: 0,
+          pointRadius: 0,
+          fill: false,
+          hidden: !state.showCorridor
+        },
+        // Dataset 1: Low corridor boundary (fills to High corridor)
+        {
+          label: 'High-Low Range Corridor',
+          data: lowSeries,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(209, 213, 219, 0.25)', // Soft financial envelope
+          borderWidth: 0,
+          pointRadius: 0,
+          fill: '-1', // Fill to Dataset 0
+          hidden: !state.showCorridor
+        },
+        // Dataset 2: Trading Volume (Bar at bottom on secondary scale)
+        {
+          type: 'bar',
+          label: 'Trading Volume',
+          data: volumeSeries,
+          backgroundColor: volumeColors,
+          borderWidth: 0,
+          barPercentage: 0.6,
+          categoryPercentage: 0.8,
+          yAxisID: 'yVolume',
+          hidden: !state.showVolume
+        },
+        // Dataset 3: Primary Historical Close Price
         {
           label: 'Historical Close ($)',
-          data: historicalSeries,
+          data: closeSeries,
           borderColor: '#111827',
-          backgroundColor: gradientFill,
-          borderWidth: 2.2,
+          backgroundColor: histGradient,
+          borderWidth: 2.4,
           fill: true,
-          tension: 0.25,
-          pointRadius: records.length > 40 ? 0 : 3,
+          tension: 0.15,
+          pointRadius: mappedRecords.length > 45 ? 0 : 3,
           pointHoverRadius: 6,
           pointBackgroundColor: '#111827',
           pointBorderColor: '#FFFFFF',
           pointBorderWidth: 2
         },
+        // Dataset 4: Backtest Validation Curve
+        {
+          label: 'Backtest Validation ($)',
+          data: backtestSeries,
+          borderColor: '#F59E0B',
+          backgroundColor: 'transparent',
+          borderWidth: 2.2,
+          borderDash: [5, 4],
+          fill: false,
+          tension: 0.15,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointBackgroundColor: '#F59E0B',
+          pointBorderColor: '#FFFFFF',
+          pointBorderWidth: 1.5,
+          hidden: !state.showValidationCurve
+        },
+        // Dataset 5: Future C++ Projections
         {
           label: 'Future C++ Forecast ($)',
           data: projectionSeries,
           borderColor: '#9AE61C',
           backgroundColor: projGradient,
           borderWidth: 3,
-          borderDash: [0, 0],
           fill: true,
           tension: 0.2,
-          pointRadius: 5,
+          pointRadius: projectionPointRadius,
           pointHoverRadius: 8,
           pointBackgroundColor: '#B4F73C',
           pointBorderColor: '#0D2B1D',
-          pointBorderWidth: 2
-        },
-        {
-          label: 'Backtest Validation ($)',
-          data: backtestSeries,
-          borderColor: '#F59E0B',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          borderDash: [5, 4],
-          fill: false,
-          tension: 0.2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: '#F59E0B',
-          pointBorderColor: '#FFFFFF',
-          pointBorderWidth: 1.5,
-          hidden: !state.showValidationCurve
+          pointBorderWidth: 2.2
         }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: {
+        duration: 400
+      },
       interaction: {
         mode: 'index',
         intersect: false
+      },
+      onHover: (event, activeElements) => {
+        if (!activeElements || activeElements.length === 0) return;
+        const index = activeElements[0].index;
+        const histLen = mappedRecords.length;
+
+        if (index < histLen) {
+          updateHUD(mappedRecords[index]);
+        } else {
+          const projIdx = index - histLen;
+          if (projections && projIdx < projections.length) {
+            updateHUD(null, Object.assign({}, projections[projIdx], {
+              dateLabel: labels[index]
+            }));
+          }
+        }
       },
       plugins: {
         legend: {
           display: false
         },
         tooltip: {
-          backgroundColor: 'rgba(13, 43, 29, 0.95)',
+          backgroundColor: 'rgba(13, 43, 29, 0.96)',
           titleFont: { family: 'Plus Jakarta Sans', size: 12, weight: 'bold' },
-          bodyFont: { family: 'Plus Jakarta Sans', size: 12 },
+          bodyFont: { family: 'Plus Jakarta Sans', size: 11 },
           padding: 12,
           cornerRadius: 12,
-          borderColor: 'rgba(180, 247, 60, 0.3)',
+          borderColor: 'rgba(180, 247, 60, 0.4)',
           borderWidth: 1,
-          displayColors: true,
+          displayColors: false, // Cleaner display without ugly black box
           callbacks: {
+            title: function(items) {
+              if (!items || items.length === 0) return '';
+              return items[0].label;
+            },
             label: function(context) {
               const val = context.parsed.y;
               if (val === null || val === undefined) return null;
               const label = context.dataset.label || '';
 
-              // For backtest validation curve, show comparison with actual close
+              // Skip high/low boundary rows in tooltip to avoid clutter
+              if (label.includes('Daily High') || label.includes('Range Corridor')) {
+                return null;
+              }
+
+              // Trading Volume
+              if (context.dataset.type === 'bar') {
+                return `● Volume: ${(val / 1000000).toFixed(2)}M shares`;
+              }
+
+              // Historical Close
+              if (label.includes('Historical')) {
+                return `● Historical Close: ${formatCurrency(val)}`;
+              }
+
+              // Backtest Validation Point
               if (label.includes('Backtest') && state.forecastData && state.forecastData.backtest) {
-                const backtest = state.forecastData.backtest;
-                const testSize = backtest.length;
-                const histLength = records.length;
+                const backtestData = state.forecastData.backtest;
+                const testSize = backtestData.length;
+                const histLength = mappedRecords.length;
                 const stepIdx = context.dataIndex - (histLength - testSize);
                 if (stepIdx >= 0 && stepIdx < testSize) {
-                  const b = backtest[stepIdx];
-                  return `${label}: ${formatCurrency(val)} (Abs Error: $${b.absError.toFixed(2)}, ${b.pctError.toFixed(2)}%)`;
+                  const b = backtestData[stepIdx];
+                  return `● Backtest Validation: ${formatCurrency(val)} (Abs Error: $${b.absError.toFixed(2)}, ${b.pctError.toFixed(2)}%)`;
                 }
+                return `● Backtest Baseline: ${formatCurrency(val)}`;
               }
 
-              // For future projections, show expected percentage return
+              // Future C++ Projections
               if (label.includes('Future') && state.forecastData && state.forecastData.futureProjections) {
-                const projections = state.forecastData.futureProjections.projections;
-                const histLength = records.length;
+                const projs = state.forecastData.futureProjections.projections;
+                const histLength = mappedRecords.length;
                 const pIdx = context.dataIndex - histLength;
-                if (pIdx >= 0 && pIdx < projections.length) {
-                  const p = projections[pIdx];
-                  return `${label}: ${formatCurrency(val)} (${p.expectedChange})`;
+                if (pIdx >= 0 && pIdx < projs.length) {
+                  const p = projs[pIdx];
+                  return `● C++ Future Forecast: ${formatCurrency(val)} (${p.expectedChange})`;
                 }
+                return `● Forecast Baseline: ${formatCurrency(val)}`;
               }
 
-              return `${label}: ${formatCurrency(val)}`;
+              return `● ${label}: ${formatCurrency(val)}`;
             }
           }
         }
@@ -596,20 +775,33 @@ function renderChart(historicalRecords, projections, backtest) {
             drawBorder: false
           },
           ticks: {
-            maxTicksLimit: 10,
+            autoSkip: true,
+            maxTicksLimit: 12,
             font: { family: 'Plus Jakarta Sans', size: 11 },
             color: '#9CA3AF'
           }
         },
         y: {
+          position: 'left',
           grid: {
-            color: 'rgba(243, 244, 246, 0.8)',
+            color: 'rgba(243, 244, 246, 0.85)',
             drawBorder: false
           },
+          grace: '6%',
           ticks: {
-            callback: value => '$' + value,
+            callback: value => '$' + Number(value).toLocaleString(),
             font: { family: 'Plus Jakarta Sans', size: 11 },
             color: '#9CA3AF'
+          }
+        },
+        // Secondary Volume Axis: Hidden and scaled to stay at bottom 25% of chart
+        yVolume: {
+          position: 'right',
+          display: false,
+          min: 0,
+          max: maxVol * 4.2,
+          grid: {
+            display: false
           }
         }
       }
@@ -706,6 +898,13 @@ async function uploadAndApplyCSV() {
 
       state.currentCsvPath = resData.savedPath;
       state.currentFilename = resData.filename;
+
+      // Update preset select dropdown to indicate custom file
+      if (elements.customCsvOption) {
+        elements.customCsvOption.disabled = false;
+        elements.customCsvOption.textContent = `Custom: ${resData.filename}`;
+        elements.presetDatasetSelect.value = 'custom';
+      }
 
       elements.uploadModal.classList.add('hidden');
       showToast(`Uploaded ${resData.filename} (${resData.recordCount} rows). Running forecast...`, 'success');
@@ -864,6 +1063,71 @@ function setupEventListeners() {
       renderChart(state.forecastData.historicalRecords, state.forecastData.futureProjections.projections, state.forecastData.backtest);
     }
   });
+
+  // 10b. Toggle Range Corridor (High/Low)
+  if (elements.toggleCorridorBtn) {
+    elements.toggleCorridorBtn.addEventListener('click', () => {
+      state.showCorridor = !state.showCorridor;
+      elements.toggleCorridorBtn.textContent = state.showCorridor ? 'Range: On' : 'Range: Off';
+      elements.toggleCorridorBtn.className = state.showCorridor 
+        ? 'px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-900 text-white transition'
+        : 'px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition';
+      if (state.forecastData) {
+        renderChart(state.forecastData.historicalRecords, state.forecastData.futureProjections.projections, state.forecastData.backtest);
+      }
+    });
+  }
+
+  // 10c. Toggle Volume Histogram
+  if (elements.toggleVolumeBtn) {
+    elements.toggleVolumeBtn.addEventListener('click', () => {
+      state.showVolume = !state.showVolume;
+      elements.toggleVolumeBtn.textContent = state.showVolume ? 'Volume: On' : 'Volume: Off';
+      elements.toggleVolumeBtn.className = state.showVolume 
+        ? 'px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-900 text-white transition'
+        : 'px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition';
+      if (state.forecastData) {
+        renderChart(state.forecastData.historicalRecords, state.forecastData.futureProjections.projections, state.forecastData.backtest);
+      }
+    });
+  }
+
+  // 10d. Preset Dataset Select (Works with or without CSV file!)
+  if (elements.presetDatasetSelect) {
+    elements.presetDatasetSelect.addEventListener('change', e => {
+      if (e.target.value === 'custom') return;
+      state.currentCsvPath = e.target.value;
+      state.currentFilename = e.target.options[e.target.selectedIndex].text.split('(')[0].trim() + '.csv';
+      showToast(`Switched market to: ${e.target.options[e.target.selectedIndex].text}`, 'info');
+      runForecast();
+    });
+  }
+
+  // 10e. Chart Shortcut Upload Button
+  if (elements.chartUploadBtn) {
+    elements.chartUploadBtn.addEventListener('click', () => {
+      elements.uploadStatusBox.classList.add('hidden');
+      elements.uploadModal.classList.remove('hidden');
+    });
+  }
+
+  // 10f. Preset Quick Buttons in Upload Modal
+  if (elements.presetQuickBtns) {
+    elements.presetQuickBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const filePath = btn.dataset.path;
+        const fileName = btn.dataset.name;
+        state.currentCsvPath = filePath;
+        state.currentFilename = fileName;
+        if (elements.presetDatasetSelect) {
+          elements.presetDatasetSelect.value = filePath;
+        }
+        elements.uploadModal.classList.add('hidden');
+        showToast(`Loaded built-in dataset: ${fileName}`, 'success');
+        runForecast();
+      });
+    });
+  }
 
   // 11. Toggle Price Privacy Eye Button
   elements.togglePricePrivacyBtn.addEventListener('click', () => {

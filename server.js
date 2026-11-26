@@ -15,7 +15,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 /**
- * Parses raw CSV text into structured records
+ * Parses raw CSV text into structured records with robust delimiter,
+ * header matching, number cleaning, and chronological ordering.
  */
 function parseCSV(content) {
   const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
@@ -23,37 +24,61 @@ function parseCSV(content) {
     throw new Error('CSV file must contain a header row and at least one data row.');
   }
 
-  // Parse headers
-  const headerLine = lines[0];
-  const headers = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+  // Detect delimiter: comma, semicolon, tab
+  const firstLine = lines[0];
+  let delimiter = ',';
+  if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
+    delimiter = ';';
+  } else if ((firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length) {
+    delimiter = '\t';
+  }
 
-  const dateIdx = headers.indexOf('date');
-  const openIdx = headers.indexOf('open');
-  const highIdx = headers.indexOf('high');
-  const lowIdx = headers.indexOf('low');
-  const closeIdx = headers.indexOf('close');
-  const volIdx = headers.indexOf('volume');
+  // Parse headers
+  const headers = firstLine.split(delimiter).map(h => 
+    h.trim().replace(/^["']|["']$/g, '').toLowerCase().replace(/[\s_-]+/g, ' ')
+  );
+
+  let dateIdx = headers.findIndex(h => h.includes('date') || h.includes('time') || h === 'day');
+  let openIdx = headers.findIndex(h => h.includes('open') || h.includes('first'));
+  let highIdx = headers.findIndex(h => h.includes('high') || h.includes('max'));
+  let lowIdx = headers.findIndex(h => h.includes('low') || h.includes('min'));
+  let closeIdx = headers.findIndex(h => h.includes('close') || h.includes('price') || h.includes('last'));
+  let volIdx = headers.findIndex(h => h.includes('vol') || h.includes('shares'));
+
+  // Only fall back to index 4 if headers are completely unlabeled/numeric (no recognized financial names)
+  const hasRecognizedNames = headers.some(h => ['date', 'open', 'high', 'low', 'volume', 'vol'].some(k => h.includes(k)));
+  if (closeIdx === -1 && !hasRecognizedNames && headers.length >= 5) {
+    closeIdx = 4;
+  }
+  if (dateIdx === -1 && !hasRecognizedNames && headers.length >= 1) {
+    dateIdx = 0;
+  }
 
   if (closeIdx === -1) {
     throw new Error('Missing required column: "Close" price is mandatory for time-series forecasting.');
   }
 
-  const records = [];
+  function cleanNum(str) {
+    if (!str) return NaN;
+    const cleaned = String(str).replace(/[$,\s€£%]/g, '');
+    return parseFloat(cleaned);
+  }
+
+  const rawRecords = [];
   for (let i = 1; i < lines.length; i++) {
-    const rawCols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const rawCols = lines[i].split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
     if (rawCols.length <= closeIdx) continue;
 
-    const dateVal = dateIdx !== -1 && rawCols[dateIdx] ? rawCols[dateIdx] : `Day-${i}`;
-    const closeVal = parseFloat(rawCols[closeIdx]);
+    const closeVal = cleanNum(rawCols[closeIdx]);
     if (isNaN(closeVal)) continue;
 
-    const openVal = openIdx !== -1 ? parseFloat(rawCols[openIdx]) || closeVal : closeVal;
-    const highVal = highIdx !== -1 ? parseFloat(rawCols[highIdx]) || Math.max(openVal, closeVal) : Math.max(openVal, closeVal);
-    const lowVal = lowIdx !== -1 ? parseFloat(rawCols[lowIdx]) || Math.min(openVal, closeVal) : Math.min(openVal, closeVal);
-    const volVal = volIdx !== -1 ? parseInt(rawCols[volIdx], 10) || 0 : 0;
+    const dateVal = dateIdx !== -1 && rawCols[dateIdx] ? rawCols[dateIdx] : `Day-${i}`;
+    const openVal = openIdx !== -1 && !isNaN(cleanNum(rawCols[openIdx])) ? cleanNum(rawCols[openIdx]) : closeVal;
+    const highVal = highIdx !== -1 && !isNaN(cleanNum(rawCols[highIdx])) ? cleanNum(rawCols[highIdx]) : Math.max(openVal, closeVal);
+    const lowVal = lowIdx !== -1 && !isNaN(cleanNum(rawCols[lowIdx])) ? cleanNum(rawCols[lowIdx]) : Math.min(openVal, closeVal);
+    const volVal = volIdx !== -1 && !isNaN(cleanNum(rawCols[volIdx])) ? Math.round(cleanNum(rawCols[volIdx])) : 0;
 
-    records.push({
-      index: i - 1,
+    rawRecords.push({
       date: dateVal,
       open: openVal,
       high: highVal,
@@ -63,11 +88,34 @@ function parseCSV(content) {
     });
   }
 
-  if (records.length === 0) {
-    throw new Error('No valid numeric rows found in CSV.');
+  if (rawRecords.length === 0) {
+    throw new Error('No valid numeric stock records found in CSV.');
   }
 
-  return records;
+  // Ensure chronological order (oldest to newest)
+  // If first record date is later than last record date, reverse to chronological
+  let isDescending = false;
+  const dFirst = new Date(rawRecords[0].date).getTime();
+  const dLast = new Date(rawRecords[rawRecords.length - 1].date).getTime();
+  if (!isNaN(dFirst) && !isNaN(dLast) && dFirst > dLast) {
+    isDescending = true;
+  }
+
+  const sortedRecords = isDescending ? rawRecords.reverse() : rawRecords;
+
+  // Add chronological index
+  return sortedRecords.map((r, idx) => Object.assign({ index: idx }, r));
+}
+
+/**
+ * Serializes records into clean standard CSV for C++ executable
+ */
+function serializeToStandardCSV(records) {
+  let csv = 'Date,Open,High,Low,Close,Volume\n';
+  for (const r of records) {
+    csv += `${r.date},${r.open.toFixed(2)},${r.high.toFixed(2)},${r.low.toFixed(2)},${r.close.toFixed(2)},${r.volume}\n`;
+  }
+  return csv;
 }
 
 /**
@@ -339,12 +387,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API 2: Get Sample Dataset
-  if (req.method === 'GET' && pathname === '/api/sample-data') {
-    const samplePath = path.join(ROOT_DIR, 'data', 'sample_stock_data.csv');
+  // API 2: Get Preset Datasets
+  if (req.method === 'GET' && pathname === '/api/presets') {
+    const presets = [
+      { id: 'default', name: 'Default Sample Data (60D)', filepath: 'data/sample_stock_data.csv', desc: 'Baseline market regime from original repository' },
+      { id: 'aapl', name: 'Apple Inc. Growth (90D)', filepath: 'data/preset_aapl_tech.csv', desc: 'Steady tech trend with realistic OHLCV variance' },
+      { id: 'nvda', name: 'Nvidia Momentum (75D)', filepath: 'data/preset_nvda_momentum.csv', desc: 'High-volatility semiconductor surge' },
+      { id: 'xom', name: 'Exxon Energy Defensive (80D)', filepath: 'data/preset_xom_defensive.csv', desc: 'Range-bound defensive asset with cyclical swings' }
+    ];
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(presets));
+    return;
+  }
+
+  // API 2b: Get Specific Dataset
+  if (req.method === 'GET' && (pathname === '/api/sample-data' || pathname.startsWith('/api/dataset'))) {
+    const targetQuery = parsedUrl.searchParams.get('file') || 'data/sample_stock_data.csv';
+    const samplePath = path.isAbsolute(targetQuery) ? targetQuery : path.join(ROOT_DIR, targetQuery);
+
     if (!fs.existsSync(samplePath)) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'sample_stock_data.csv not found' }));
+      res.end(JSON.stringify({ error: `File not found: ${targetQuery}` }));
       return;
     }
     const content = fs.readFileSync(samplePath, 'utf8');
@@ -352,8 +416,8 @@ const server = http.createServer((req, res) => {
       const records = parseCSV(content);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        filename: 'sample_stock_data.csv',
-        filepath: 'data/sample_stock_data.csv',
+        filename: path.basename(samplePath),
+        filepath: path.relative(ROOT_DIR, samplePath),
         recordCount: records.length,
         records: records,
         summary: {
@@ -390,11 +454,14 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        // Validate CSV content
+        // Validate CSV content and sort chronologically
         const records = parseCSV(payload.content);
         const safeName = `upload_${Date.now()}_${path.basename(payload.filename).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
         const targetPath = path.join(UPLOADS_DIR, safeName);
-        fs.writeFileSync(targetPath, payload.content, 'utf8');
+        
+        // Write standardized chronological CSV for C++ binary
+        const standardizedCsv = serializeToStandardCSV(records);
+        fs.writeFileSync(targetPath, standardizedCsv, 'utf8');
 
         // Relative path for C++ executable
         const relativePath = path.relative(ROOT_DIR, targetPath);

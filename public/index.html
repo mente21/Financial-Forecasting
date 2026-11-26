@@ -255,21 +255,26 @@
 
     </div>
 
-    <!-- MAIN INTERACTIVE CHART SECTION -->
-    <div id="chart-section" class="bg-white rounded-4xl p-6 md:p-8 shadow-[0_4px_25px_rgba(0,0,0,0.03)] border border-gray-100/80">
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
+    <!-- MAIN INTERACTIVE FINANCIAL CHART SECTION -->
+    <div id="chart-section" class="bg-white rounded-4xl p-6 md:p-8 shadow-[0_4px_25px_rgba(0,0,0,0.03)] border border-gray-100/80 space-y-4">
+      <!-- Chart Top Bar: Title & Subtitle -->
+      <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-gray-100">
         <div>
           <div class="flex items-center space-x-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-[#B4F73C]"></span>
-            <h2 class="text-lg font-bold text-gray-900 tracking-tight">Stock Price Trajectory & DTW Forecast</h2>
+            <span class="w-3 h-3 rounded-full bg-[#B4F73C] animate-pulse"></span>
+            <h2 class="text-lg md:text-xl font-bold text-gray-900 tracking-tight">Stock Price Trajectory & C++ DTW Forecast</h2>
+            <span id="market-mode-badge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              Live C++ Engine
+            </span>
           </div>
           <p class="text-xs text-gray-400 mt-0.5">
-            Dynamic Programming Alignment with Historical Market Regimes & Out-of-Sample Backtesting
+            Dynamic Programming Alignment with Historical Market Regimes, Volatility Envelope & Out-of-Sample Backtesting
           </p>
         </div>
 
-        <div class="flex items-center space-x-2">
-          <!-- Chart Range buttons -->
+        <!-- Range Buttons & Quick Controls -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Range Filters -->
           <div class="flex items-center bg-gray-100 rounded-full p-1 text-xs">
             <button class="chart-range-btn px-3 py-1 font-semibold rounded-full bg-white shadow-xs text-gray-900" data-range="all">ALL</button>
             <button class="chart-range-btn px-3 py-1 font-medium rounded-full text-gray-500 hover:text-gray-800" data-range="60">60D</button>
@@ -277,37 +282,102 @@
             <button class="chart-range-btn px-3 py-1 font-medium rounded-full text-gray-500 hover:text-gray-800" data-range="15">15D</button>
           </div>
 
-          <!-- Toggle Backtest Curve -->
+          <!-- Layer Toggles -->
+          <button id="toggle-corridor-btn" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
+            Range: On
+          </button>
+          <button id="toggle-volume-btn" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
+            Volume: On
+          </button>
           <button id="toggle-backtest-curve-btn" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/60 hover:bg-emerald-100 transition">
             Validation: On
           </button>
         </div>
       </div>
 
+      <!-- Dataset Selector Bar (Works with custom uploaded CSV or built-in presets!) -->
+      <div class="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h4"></path>
+            </svg>
+            Dataset Source:
+          </span>
+          <select id="preset-dataset-select" class="bg-white border border-gray-200 rounded-full px-4 py-1.5 text-xs font-bold text-gray-800 cursor-pointer hover:border-gray-300 transition shadow-xs focus:ring-2 focus:ring-[#B4F73C]">
+            <option value="data/sample_stock_data.csv">Default Sample Dataset (60D)</option>
+            <option value="data/preset_aapl_tech.csv">Apple Inc. Tech Growth (90D)</option>
+            <option value="data/preset_nvda_momentum.csv">Nvidia High Momentum (75D)</option>
+            <option value="data/preset_xom_defensive.csv">Exxon Energy Defensive (80D)</option>
+            <option id="custom-csv-option" value="custom" disabled>Custom Uploaded CSV</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="chart-upload-btn" class="text-xs font-semibold px-4 py-1.5 rounded-full bg-[#0D2B1D] text-white hover:bg-black transition flex items-center gap-1.5 shadow-xs">
+            <svg class="w-3.5 h-3.5 text-[#B4F73C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+            </svg>
+            <span>Upload New CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Interactive HUD Bar (Syncs dynamically on hover/inspect) -->
+      <div id="chart-hud-bar" class="p-3.5 bg-gray-50/80 rounded-2xl border border-gray-100 flex flex-wrap items-center justify-between gap-3 text-xs transition-colors">
+        <div class="flex items-center space-x-3">
+          <span class="font-bold text-gray-900" id="hud-date-label">Date: --</span>
+          <span class="text-gray-300">|</span>
+          <span class="font-extrabold text-gray-900 text-base" id="hud-close-price">$0.00</span>
+          <span id="hud-change-badge" class="px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-100 text-emerald-800">
+            +0.00%
+          </span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 text-gray-500 text-[11px] font-mono-code">
+          <span id="hud-open-val" class="bg-white px-2 py-0.5 rounded-md border border-gray-100">Open: $0.00</span>
+          <span id="hud-high-val" class="bg-white px-2 py-0.5 rounded-md border border-gray-100">High: $0.00</span>
+          <span id="hud-low-val" class="bg-white px-2 py-0.5 rounded-md border border-gray-100">Low: $0.00</span>
+          <span id="hud-vol-val" class="bg-white px-2 py-0.5 rounded-md border border-gray-100">Vol: 0</span>
+          <span id="hud-forecast-badge" class="font-bold text-[#0D2B1D] bg-[#B4F73C] px-2.5 py-0.5 rounded-md shadow-xs hidden">
+            C++ Forecast: $0.00
+          </span>
+        </div>
+      </div>
+
       <!-- Chart Canvas Wrapper -->
-      <div class="relative w-full h-[360px] md:h-[420px] mt-4">
+      <div class="relative w-full h-[400px] md:h-[440px]">
         <canvas id="financialChart"></canvas>
       </div>
 
-      <!-- Chart Legend / Indicators Footer -->
-      <div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between text-xs text-gray-500 gap-3">
+      <!-- Chart Legend & Technical Metadata Footer -->
+      <div class="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between text-xs text-gray-500 gap-3">
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex items-center space-x-2">
             <span class="w-3.5 h-1.5 rounded-full bg-[#111827]"></span>
-            <span class="font-medium text-gray-700">Historical Close Price</span>
+            <span class="font-semibold text-gray-800">Historical Close</span>
           </div>
           <div class="flex items-center space-x-2">
-            <span class="w-3.5 h-1.5 rounded-full bg-[#B4F73C]"></span>
-            <span class="font-medium text-gray-700">Future C++ Projections (T+1 .. T+5)</span>
+            <span class="w-3.5 h-2 rounded bg-gray-200 border border-gray-300"></span>
+            <span class="font-medium text-gray-600">Daily High-Low Corridor</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-3.5 h-1.5 rounded-full bg-[#9AE61C]"></span>
+            <span class="font-semibold text-gray-800">Future C++ Projections (T+1 .. T+5)</span>
           </div>
           <div class="flex items-center space-x-2">
             <span class="w-3.5 h-1.5 rounded-full bg-amber-500 border border-dashed border-amber-600"></span>
-            <span class="font-medium text-gray-700">Backtest Validation Prediction</span>
+            <span class="font-medium text-gray-600">Backtest Validation</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-2 rounded-xs bg-emerald-300/80"></span>
+            <span class="font-medium text-gray-600">Trading Volume</span>
           </div>
         </div>
 
-        <div class="text-[11px] text-gray-400 font-mono-code flex items-center gap-1.5">
-          <span>Engine: DP DTW O(M·N)</span>
+        <div class="text-[11px] text-gray-400 font-mono-code flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-semibold">Engine: C++ DTW O(M·N)</span>
           <span>•</span>
           <span id="chart-data-points-count">60 historical + 5 projected</span>
         </div>
@@ -587,6 +657,32 @@
 
       <!-- File Status / Error Notice -->
       <div id="upload-status-box" class="hidden p-3 rounded-xl text-xs"></div>
+
+      <!-- Quick Preset Datasets (For testing without own CSV file!) -->
+      <div class="p-3.5 bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-gray-700">Don't have a CSV file? Test with built-in datasets:</span>
+          <span class="text-[10px] text-gray-400">Instant Real C++ Run</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <button type="button" class="preset-quick-btn p-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/30 text-left transition" data-path="data/preset_aapl_tech.csv" data-name="preset_aapl_tech.csv">
+            <div class="font-bold text-gray-800">Apple Tech (90D)</div>
+            <div class="text-[10px] text-gray-400">90 rows • $165-$195</div>
+          </button>
+          <button type="button" class="preset-quick-btn p-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/30 text-left transition" data-path="data/preset_nvda_momentum.csv" data-name="preset_nvda_momentum.csv">
+            <div class="font-bold text-gray-800">Nvidia Momentum (75D)</div>
+            <div class="text-[10px] text-gray-400">75 rows • $420-$530</div>
+          </button>
+          <button type="button" class="preset-quick-btn p-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/30 text-left transition" data-path="data/preset_xom_defensive.csv" data-name="preset_xom_defensive.csv">
+            <div class="font-bold text-gray-800">Exxon Defensive (80D)</div>
+            <div class="text-[10px] text-gray-400">80 rows • $98-$115</div>
+          </button>
+          <button type="button" class="preset-quick-btn p-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/30 text-left transition" data-path="data/sample_stock_data.csv" data-name="sample_stock_data.csv">
+            <div class="font-bold text-gray-800">Default Sample (60D)</div>
+            <div class="text-[10px] text-gray-400">60 rows • $151-$183</div>
+          </button>
+        </div>
+      </div>
 
       <!-- Footer Buttons -->
       <div class="flex items-center justify-between pt-2">
