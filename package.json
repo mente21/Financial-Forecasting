@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test_server_bridge.js"
+    "test": "node test_server_bridge.js",
+    "test:verify": "node verify_all_three_areas.js"
   },
   "keywords": [
     "financial-forecasting",

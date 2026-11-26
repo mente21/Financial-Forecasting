@@ -144,11 +144,42 @@ function showToast(message, type = 'info') {
 }
 
 /**
- * Format USD Currency
+ * Format USD Currency with proper negative sign placement (-$0.70 not $-0.70)
  */
 function formatCurrency(val) {
   if (val === undefined || val === null || isNaN(val)) return '$0.00';
-  return '$' + Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = Number(val);
+  const sign = num < 0 ? '-' : '';
+  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}$${absFormatted}`;
+}
+
+/**
+ * Format Currency Delta with explicit +/- sign (+ $1.25 or - $0.70)
+ */
+function formatDeltaCurrency(val) {
+  if (val === undefined || val === null || isNaN(val)) return '$0.00';
+  const num = Number(val);
+  const sign = num > 0 ? '+' : (num < 0 ? '-' : '');
+  const absFormatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}$${absFormatted}`;
+}
+
+/**
+ * Advance calendar date by financial trading days (skipping Saturday & Sunday)
+ */
+function getNextTradingDate(baseDateStr, stepIndex) {
+  const date = new Date(baseDateStr);
+  if (isNaN(date.getTime())) return `T+${stepIndex}`;
+  let daysAdded = 0;
+  while (daysAdded < stepIndex) {
+    date.setDate(date.getDate() + 1);
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      daysAdded++;
+    }
+  }
+  return date.toISOString().split('T')[0];
 }
 
 /**
@@ -321,7 +352,6 @@ function renderRecentRecords(records) {
   recentSlice.forEach((r, idx) => {
     const prevRecord = records[records.length - 1 - idx - 1];
     const diff = prevRecord ? r.close - prevRecord.close : 0;
-    const diffSign = diff >= 0 ? '+' : '';
     const diffClass = diff >= 0 ? 'text-emerald-600' : 'text-rose-500';
 
     const item = document.createElement('div');
@@ -336,7 +366,7 @@ function renderRecentRecords(records) {
           <div class="text-[10px] text-gray-400 font-mono-code">${r.date} • Vol: ${(r.volume / 1000000).toFixed(1)}M</div>
         </div>
       </div>
-      <span class="font-bold ${diffClass}">${diffSign}${formatCurrency(diff)}</span>
+      <span class="font-bold ${diffClass}">${formatDeltaCurrency(diff)}</span>
     `;
     elements.recentTransactionsList.appendChild(item);
   });
@@ -406,13 +436,10 @@ function renderChart(historicalRecords, projections, backtest) {
     const lastHistIdx = records.length - 1;
     projectionSeries[lastHistIdx] = records[lastHistIdx].close; // Connect lines seamlessly
 
-    // Calculate future dates or labels
-    const lastDate = new Date(records[lastHistIdx].date);
+    // Calculate future dates by trading days (skipping weekends)
+    const lastDateStr = records[lastHistIdx].date;
     projections.forEach((p, idx) => {
-      const nextDate = new Date(lastDate);
-      nextDate.setDate(lastDate.getDate() + (idx + 1));
-      const dateLabel = isNaN(nextDate.getTime()) ? p.step : nextDate.toISOString().split('T')[0];
-      
+      const dateLabel = getNextTradingDate(lastDateStr, idx + 1);
       labels.push(`${p.step} (${dateLabel})`);
       historicalSeries.push(null);
       projectionSeries.push(p.price);
@@ -426,6 +453,10 @@ function renderChart(historicalRecords, projections, backtest) {
     const trainEndIdx = records.length - testSize;
 
     if (trainEndIdx >= 0) {
+      // Connect line smoothly from the baseline price before test period
+      if (trainEndIdx > 0) {
+        backtestSeries[trainEndIdx - 1] = records[trainEndIdx - 1].close;
+      }
       backtest.forEach((b, idx) => {
         const targetIdx = trainEndIdx + idx;
         if (targetIdx < historicalSeries.length) {
@@ -528,7 +559,32 @@ function renderChart(historicalRecords, projections, backtest) {
             label: function(context) {
               const val = context.parsed.y;
               if (val === null || val === undefined) return null;
-              return `${context.dataset.label}: ${formatCurrency(val)}`;
+              const label = context.dataset.label || '';
+
+              // For backtest validation curve, show comparison with actual close
+              if (label.includes('Backtest') && state.forecastData && state.forecastData.backtest) {
+                const backtest = state.forecastData.backtest;
+                const testSize = backtest.length;
+                const histLength = records.length;
+                const stepIdx = context.dataIndex - (histLength - testSize);
+                if (stepIdx >= 0 && stepIdx < testSize) {
+                  const b = backtest[stepIdx];
+                  return `${label}: ${formatCurrency(val)} (Abs Error: $${b.absError.toFixed(2)}, ${b.pctError.toFixed(2)}%)`;
+                }
+              }
+
+              // For future projections, show expected percentage return
+              if (label.includes('Future') && state.forecastData && state.forecastData.futureProjections) {
+                const projections = state.forecastData.futureProjections.projections;
+                const histLength = records.length;
+                const pIdx = context.dataIndex - histLength;
+                if (pIdx >= 0 && pIdx < projections.length) {
+                  const p = projections[pIdx];
+                  return `${label}: ${formatCurrency(val)} (${p.expectedChange})`;
+                }
+              }
+
+              return `${label}: ${formatCurrency(val)}`;
             }
           }
         }
@@ -596,10 +652,22 @@ function handleFileSelection(file) {
       return;
     }
 
+    const validNumericRows = lines.length - 1;
+    const minRequired = state.parameters.windowSize + state.parameters.forecastHorizon + state.parameters.testSize;
+    if (validNumericRows < minRequired) {
+      elements.uploadStatusBox.className = 'p-3 rounded-xl text-xs bg-rose-50 text-rose-700 border border-rose-200 block';
+      elements.uploadStatusBox.innerHTML = `
+        <strong>Insufficient records:</strong> Selected CSV has ${validNumericRows} rows, but current parameters require at least <strong>${minRequired}</strong> rows (Window: ${state.parameters.windowSize} + Horizon: ${state.parameters.forecastHorizon} + Backtest: ${state.parameters.testSize}).
+      `;
+      elements.confirmUploadBtn.disabled = true;
+      elements.confirmUploadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      return;
+    }
+
     // Success preview
     elements.uploadStatusBox.className = 'p-3 rounded-xl text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 block';
     elements.uploadStatusBox.innerHTML = `
-      <strong>Valid CSV selected:</strong> ${file.name} (${lines.length - 1} records detected).
+      <strong>Valid CSV selected:</strong> ${file.name} (${validNumericRows} records detected).
       Ready to upload and run C++ forecasting.
     `;
     elements.confirmUploadBtn.disabled = false;
