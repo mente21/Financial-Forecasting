@@ -20,6 +20,15 @@ struct StockRecord {
 
     StockRecord(const std::string& d, double o, double h, double l, double c, long long v)
         : date(d), openPrice(o), highPrice(h), lowPrice(l), closePrice(c), volume(v) {}
+
+    /**
+     * @brief Checks if the record contains valid required stock data.
+     * @return true if date is non-empty and closePrice is strictly positive (> 0).
+     */
+    bool isValid() const {
+        return !date.empty() && closePrice > 0.0 &&
+               openPrice >= 0.0 && highPrice >= 0.0 && lowPrice >= 0.0 && volume >= 0;
+    }
 };
 
 /**
